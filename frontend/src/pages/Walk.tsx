@@ -17,7 +17,6 @@ import { Coords } from '@/models/location';
 import { useStore } from '@/store';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { uploadImages } from '@/utils/image';
-import { withAuthenticated } from '@/components/hoc/withAuthenticated';
 import { delay } from 'msw';
 import { DEFAULT_WEIGHT, WALKING_FACTOR } from '@/constants';
 
@@ -61,25 +60,31 @@ function Walk() {
 
     const stopWalk = async (dogs: WalkingDog[]) => {
         if (!dogs.length) return;
+        let routeToSave;
+
         spinnerAdd();
         stopClock();
-        const simplifiedRoutes = await stopGeo();
-        const ok = await requestWalkStop(dogs.map((d) => d.id));
-        if (ok) {
-            resetWalkData();
-            await delay(400);
-            navigate('/journals/create', {
-                state: {
-                    dogs,
-                    distance,
-                    duration,
-                    calories: getCalories(distance),
-                    startedAt,
-                    routes: simplifiedRoutes,
-                    journalPhotos,
-                },
-            });
+        const [stopGeoResult] = await Promise.allSettled([stopGeo(), requestWalkStop(dogs.map((d) => d.id))]);
+
+        if (stopGeoResult.status === 'fulfilled') {
+            routeToSave = stopGeoResult.value;
+        } else {
+            routeToSave = routes;
         }
+
+        resetWalkData();
+        await delay(400);
+        navigate('/journals/create', {
+            state: {
+                dogs,
+                distance,
+                duration,
+                calories: getCalories(distance),
+                startedAt,
+                routes: routeToSave,
+                journalPhotos,
+            },
+        });
 
         spinnerRemove();
     };
@@ -163,6 +168,4 @@ interface ReceivedState {
     dogs: DogAvatar[];
 }
 
-const AuthenticatedWalk = withAuthenticated(Walk);
-
-export default AuthenticatedWalk;
+export default Walk;
