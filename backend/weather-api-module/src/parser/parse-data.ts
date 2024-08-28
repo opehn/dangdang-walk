@@ -5,6 +5,7 @@ import {
     TodayWeatherPredicateDataMap,
     OneHourRealWeatherDataMap,
 } from '../weather/weather-type';
+
 export interface ParseData<T, U> {
     parse(data: T): U;
 }
@@ -64,6 +65,7 @@ export class parseRealWeatherOneHour implements ParseData<OneHourWeatherRealRaw[
                 consolidatedData[key] = {
                     temperature: 0,
                     precipitation: 0,
+                    sky: 0,
                 };
             }
 
@@ -73,6 +75,9 @@ export class parseRealWeatherOneHour implements ParseData<OneHourWeatherRealRaw[
                     break;
                 case 'PTY':
                     consolidatedData[key].precipitation = Number(weatherData.obsrValue);
+                    break;
+                case 'SKY':
+                    consolidatedData[key].sky = Number(weatherData.obsrValue);
                     break;
             }
         });

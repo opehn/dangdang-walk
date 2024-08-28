@@ -1,21 +1,31 @@
 import * as cron from 'node-cron';
 
-import { getDataInstance } from '../data/data-factory';
 import { DataStore } from '../data/data-store';
-import { getLogger } from '../logger/logger-factory';
 import { WinstonLoggerService } from '../logger/winston-logger';
 import { getCurrentTimeKey } from '../util';
-import { getWeatherServiceInstance, WeatherService } from '../weather/weather-service';
+import { WeatherService } from '../weather/weather-service';
 
 export class Scheduler {
     private readonly dataStore: DataStore;
     private readonly weatherService: WeatherService;
     private readonly logger: WinstonLoggerService;
+    private static instance: Scheduler;
 
     constructor(dataStore: DataStore, weatherService: WeatherService, logger: WinstonLoggerService) {
         this.dataStore = dataStore;
         this.weatherService = weatherService;
         this.logger = logger;
+    }
+
+    public static async getInstance(): Promise<Scheduler> {
+        if (!Scheduler.instance) {
+            Scheduler.instance = new Scheduler(
+                await DataStore.getInstance(),
+                await WeatherService.getInstance(),
+                WinstonLoggerService.getInstance(),
+            );
+        }
+        return Scheduler.instance;
     }
 
     async getKeys(): Promise<string[]> {
@@ -25,35 +35,47 @@ export class Scheduler {
 
     async scheduleTodayWeatherPredicate() {
         const keys = await this.getKeys();
-        cron.schedule('0 0 2 * * *', async () => {
-            for (const key of keys) {
-                const [x, y] = key.split(':');
-                this.weatherService.saveTodayWeatherPredicate(parseInt(x), parseInt(y));
-            }
-        });
-        this.logger.info(`하루 예보 데이터에 대한 cron job이 등록되었습니다. 지역 갯수 : ${keys.length}`);
+        try {
+            cron.schedule('0 0 23 * * *', async () => {
+                const start = Date.now();
+                await Promise.all(
+                    keys.map(async (key) => {
+                        const [nx, ny] = key.split(':');
+                        this.weatherService.saveTodayWeatherPredicate(parseInt(nx), parseInt(ny));
+                    }),
+                );
+                const end = Date.now();
+                this.logger.cronJobFinished('predicateDay', keys.length, end - start);
+            });
+            this.logger.cronJobAdded('predicateDay', keys.length);
+        } catch (error) {
+            this.logger.error('CRON JOB FAILED | 하루 예보 저장에 실패했습니다.', error.stack);
+        }
     }
 
     async scheduleOneHourRealWeatherPredicate() {
         const keys = await this.getKeys();
         const time = getCurrentTimeKey();
-        cron.schedule('0 1 * * * *', async () => {
-            for (const key of keys) {
-                const [x, y] = key.split(':');
-                this.weatherService.saveOneHourWeatherReal(parseInt(x), parseInt(y), time);
-            }
-        });
-        this.logger.info(`한시간 실황 데이터에 대한 cron job이 등록되었습니다. 지역 갯수 : ${keys.length}`);
+        try {
+            cron.schedule('0 11 * * * *', async () => {
+                const start = Date.now();
+                Promise.all(
+                    keys.map(async (key) => {
+                        const [nx, ny] = key.split(':');
+                        this.weatherService.saveOneHourWeatherReal(parseInt(nx), parseInt(ny), time);
+                    }),
+                );
+                const end = Date.now();
+                this.logger.cronJobFinished('realtimeOneHour', keys.length, end - start);
+            });
+            this.logger.cronJobAdded('realtimeOneHour', keys.length);
+        } catch (error) {
+            this.logger.error('CRON JOB FAILED | 한시간 실황 저장에 실패했습니다.', error.stack);
+        }
     }
-}
 
-export async function getSchedulerInstance() {
-    return new Scheduler(await getDataInstance(), await getWeatherServiceInstance(), getLogger());
-}
-
-export async function initializeScheduler() {
-    const scheduler = await getSchedulerInstance();
-
-    scheduler.scheduleOneHourRealWeatherPredicate();
-    scheduler.scheduleTodayWeatherPredicate();
+    async initializeScheduler() {
+        this.scheduleOneHourRealWeatherPredicate();
+        this.scheduleTodayWeatherPredicate();
+    }
 }

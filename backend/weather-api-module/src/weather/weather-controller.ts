@@ -2,11 +2,9 @@ import { IncomingMessage, ServerResponse } from 'http';
 
 import * as url from 'url';
 
-import { getWeatherServiceInstance, WeatherService } from './weather-service';
+import { WeatherService } from './weather-service';
 
-import { getDataInstance } from '../data/data-factory';
 import { DataStore } from '../data/data-store';
-import { getLogger } from '../logger/logger-factory';
 import { WinstonLoggerService } from '../logger/winston-logger';
 import { getCurrentTimeKey } from '../util';
 
@@ -45,6 +43,7 @@ export class Controller {
         try {
             let weatherData = await this.dataStore.getWeatherData(nx, ny);
             if (!weatherData) {
+                this.logger.info(`데이터가 없습니다. 새 지역에 대한 정보를 수집합니다`);
                 const time = getCurrentTimeKey();
                 await Promise.all([
                     this.weatherService.saveTodayWeatherPredicate(nx, ny),
@@ -76,5 +75,9 @@ export class Controller {
 }
 
 export async function getControllerInstance() {
-    return new Controller(await getDataInstance(), await getWeatherServiceInstance(), getLogger());
+    return new Controller(
+        await DataStore.getInstance(),
+        await WeatherService.getInstance(),
+        WinstonLoggerService.getInstance(),
+    );
 }
