@@ -1,29 +1,31 @@
 import { Injectable } from '@nestjs/common';
 
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DeleteResult, EntityManager, FindOptionsWhere, In, InsertResult } from 'typeorm';
 import { Transactional } from 'typeorm-transactional';
 
 import { Journals } from './journals.entity';
 import { JournalsRepository } from './journals.repository';
 import {
-    ExcrementsInputForCreate,
+    CreateJournalDatabaseInput,
     CreateJournalRequest,
     DogOutputForDetail,
     DogWalkJournalRaw,
     ExcrementCount,
-    JournalDetailResponse,
+    ExcrementsInputForCreate,
     JournalDetailRaw,
-    JournalOutputForDetail,
+    JournalDetailResponse,
+    JournalInputForCreate,
     JournalListResponse,
+    JournalOutputForDetail,
+    UpdateJournalDatabaseInput,
     UpdateJournalRequest,
     UpdateTodayWalkTimeOperation,
-    UpdateJournalDatabaseInput,
-    CreateJournalDatabaseInput,
-    JournalInputForCreate,
 } from './types/journal.types';
 
 import { WinstonLoggerService } from '../common/logger/winstonLogger.service';
 
+import { EVENTS } from '../const/cache-const';
 import { DogWalkDayService } from '../dog-walk-day/dog-walk-day.service';
 import { DogsService } from '../dogs/dogs.service';
 import { Excrements } from '../excrements/excrements.entity';
@@ -40,6 +42,7 @@ import { checkIfExistsInArr, makeSubObject, makeSubObjectsArray } from '../utils
 @Injectable()
 export class JournalsService {
     constructor(
+        private readonly eventEmitter: EventEmitter2,
         private readonly journalsRepository: JournalsRepository,
         private readonly journalsDogsService: JournalsDogsService,
         private readonly dogsService: DogsService,
@@ -199,6 +202,8 @@ export class JournalsService {
         if (createJournalRequest.excrements && createJournalRequest.excrements.length) {
             await this.createExcrements(createJournalResult.id, createJournalRequest.excrements);
         }
+
+        await this.eventEmitter.emit(EVENTS.JOURNAL_CREATED, { userId });
     }
 
     @Transactional()
@@ -224,8 +229,12 @@ export class JournalsService {
         await this.updateDogWalkDay(dogIds, subtractDogWalkDay);
         await this.updateTodayWalkTime(dogIds, journalRaw.duration, subtractTodayWalkTime);
 
-        await this.s3Service.deleteObjects(userId, journalPhotos);
+        if (journalPhotos.length) {
+            await this.s3Service.deleteObjects(userId, journalPhotos);
+        }
         await this.delete(journalId);
+
+        await this.eventEmitter.emit(EVENTS.JOURNAL_DELETED, { userId });
     }
 
     private async findUserDogJournalsByDate(
